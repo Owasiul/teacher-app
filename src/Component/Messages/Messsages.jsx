@@ -1,12 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { motion, AnimatePresence } from "framer-motion";
 import toast from "react-hot-toast";
-import axios from "axios";
-
+import { AuthContext } from "../AuthProvider/AuthContext";
+import axiosPublic from "../Axios/AxiosApi";
 
 /* ── Helpers ── */
 function timeAgo(dateStr) {
+  if (!dateStr) return "...";
   const diff = Date.now() - new Date(dateStr).getTime();
   const mins = Math.floor(diff / 60000);
   const hrs = Math.floor(diff / 3600000);
@@ -14,11 +15,7 @@ function timeAgo(dateStr) {
   if (mins < 1) return "just now";
   if (mins < 60) return `${mins}m ago`;
   if (hrs < 24) return `${hrs}h ago`;
-  if (days < 7) return `${days}d ago`;
-  return new Date(dateStr).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-  });
+  return `${days}d ago`;
 }
 
 function getInitials(name = "") {
@@ -31,14 +28,12 @@ function getInitials(name = "") {
 }
 
 const AVATAR_COLORS = [
-  "bg-amber-400",
-  "bg-orange-400",
-  "bg-rose-400",
-  "bg-teal-400",
-  "bg-sky-400",
-  "bg-violet-400",
-  "bg-emerald-400",
-  "bg-pink-400",
+  "bg-amber-500",
+  "bg-orange-500",
+  "bg-rose-500",
+  "bg-teal-500",
+  "bg-sky-500",
+  "bg-indigo-500",
 ];
 
 function avatarColor(name = "") {
@@ -47,97 +42,81 @@ function avatarColor(name = "") {
   return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
 }
 
-const EMOJIS = ["💛", "🙏", "🌟", "📚", "🔬", "💫", "❤️", "🎓"];
-
-/* ── Auth helper — reads localStorage set during login ── */
-function useCurrentUser() {
-  try {
-    const raw = localStorage.getItem("currentUser");
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-}
+const EMOJIS = ["💛", "⚛️", "🌟", "📚", "🔬", "💫", "🍎", "🎓"];
 
 const Messages = () => {
   const navigate = useNavigate();
-  const user = useCurrentUser();
+  const { user } = useContext(AuthContext);
   const bottomRef = useRef(null);
   const inputRef = useRef(null);
 
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState("all");
   const [text, setText] = useState("");
-  const [emoji, setEmoji] = useState("💛");
+  const [emoji, setEmoji] = useState("⚛️");
   const [showEmoji, setShowEmoji] = useState(false);
   const [sending, setSending] = useState(false);
 
   /* ── Auth guard ── */
   useEffect(() => {
-    if (!user) {
-      toast("Please register first to join the conversation 👋", {
-        icon: "🔐",
-      });
-      navigate("/register");
+    if (!user && !loading) {
+      toast.error("Please login to see the tribute board");
+      navigate("/login");
     }
-  }, [user, navigate]);
+  }, [user, navigate, loading]);
 
   /* ── Fetch messages ── */
+  const fetchMessages = async () => {
+    try {
+      const res = await axiosPublic.get("/messages");
+      // Backend returns array of messages
+      setMessages(res.data);
+    } catch (err) {
+      toast.error("Could not load the message board.", err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    if (!user) return;
-
-    const fetchMessages = async () => {
-      try {
-        const res = await axios.get("/api/messages");
-        setMessages(res.data.data);
-      } catch {
-        toast.error("Failed to load messages.");
-      } finally {
-        setLoading(false);
-      }
-    };
-
     fetchMessages();
-  }, [user]);
+    // Optional: Refresh every 30 seconds
+    const interval = setInterval(fetchMessages, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
-  /* ── Auto-scroll to bottom on new messages ── */
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
   /* ── Send message ── */
   const handleSend = async () => {
-    if (!text.trim()) return;
+    if (!text.trim() || sending) return;
+
     setSending(true);
-    const optimistic = {
-      _id: `temp-${Date.now()}`,
+    const newMessage = {
       name: user.name,
+      studentId: user.studentId,
+      text: text.trim(),
+      emoji: emoji,
       role: "student",
-      message: text.trim(),
-      emoji,
-      createdAt: new Date().toISOString(),
-      pending: true,
     };
-    setMessages((prev) => [...prev, optimistic]);
-    setText("");
-    setShowEmoji(false);
+
     try {
-      const res = await axios.post("/api/messages", {
-        name: user.name,
-        role: "student",
-        message: optimistic.message,
-        emoji,
-      });
-      setMessages((prev) =>
-        prev.map((m) => (m._id === optimistic._id ? res.data.data : m)),
-      );
-    } catch {
-      setMessages((prev) => prev.filter((m) => m._id !== optimistic._id));
-      toast.error("Failed to send. Try again.");
+      const res = await axiosPublic.post("/messages", newMessage);
+      if (res.data) {
+        setMessages((prev) => [
+          ...prev,
+          { ...newMessage, _id: Date.now(), createdAt: new Date() },
+        ]);
+        setText("");
+        setShowEmoji(false);
+        if (inputRef.current) inputRef.current.style.height = "auto";
+      }
+    } catch (err) {
+      toast.error("Failed to send your message.", err.message);
     } finally {
       setSending(false);
-      inputRef.current?.focus();
     }
   };
 
@@ -148,323 +127,188 @@ const Messages = () => {
     }
   };
 
-  const visible =
-    filter === "all" ? messages : messages.filter((m) => m.role === filter);
-
-  if (!user) return null;
+  if (!user && loading)
+    return (
+      <div className="h-screen flex items-center justify-center bg-[#fdf6e9]">
+        Calculating Trajectory...
+      </div>
+    );
 
   return (
-    <div className="flex flex-col h-[calc(100vh-66px)] bg-[#fdf6e9]">
-      {/* ── Top bar ── */}
-      <div className="shrink-0 border-b border-amber-200/70 bg-[#fffaf2] px-5 py-3 flex items-center justify-between shadow-sm">
-        <div className="flex items-center gap-3">
-          {/* Online indicator */}
-          <div className="relative">
-            <div className="w-9 h-9 rounded-full bg-amber-100 border-2 border-amber-300 flex items-center justify-center text-base">
-              🎓
-            </div>
-            <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-400 rounded-full border-2 border-white" />
+    <div className="flex flex-col h-screen max-h-screen bg-[#fdf6e9] relative">
+      {/* Background Texture */}
+      <div
+        className="absolute inset-0 opacity-[0.03] pointer-events-none"
+        style={{
+          backgroundImage: "radial-gradient(#000 1px, transparent 1px)",
+          backgroundSize: "20px 20px",
+        }}
+      />
+
+      {/* ── Header ── */}
+      <header className="shrink-0 z-10 border-b border-amber-200/60 bg-white/80 backdrop-blur-md px-6 py-4 flex items-center justify-between shadow-sm">
+        <div className="flex items-center gap-4">
+          <div className="w-10 h-10 rounded-xl bg-amber-500 flex items-center justify-center text-white text-xl shadow-lg shadow-amber-200">
+            ⚛️
           </div>
           <div>
-            <p className="font-serif text-sm font-semibold text-stone-800 leading-tight">
-              Messages of Gratitude
-            </p>
-            <p className="text-xs text-emerald-500 font-medium">
-              {messages.length} message{messages.length !== 1 ? "s" : ""} shared
+            <h1 className="font-serif text-lg font-bold text-stone-800">
+              Physics Tribute Board
+            </h1>
+            <p className="text-[10px] uppercase tracking-widest text-emerald-600 font-bold flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />{" "}
+              {messages.length} Contributions
             </p>
           </div>
         </div>
-
-        {/* Filter pills */}
-        <div className="hidden sm:flex items-center gap-1 bg-stone-100 rounded-full p-1">
-          {[
-            { key: "all", label: "All", icon: "🌟" },
-            { key: "student", label: "Students", icon: "🎒" },
-            { key: "teacher", label: "Teachers", icon: "🍎" },
-          ].map(({ key, label, icon }) => (
-            <button
-              key={key}
-              onClick={() => setFilter(key)}
-              className={`px-3 py-1 rounded-full text-xs font-medium transition-all duration-200 ${
-                filter === key
-                  ? "bg-white text-stone-800 shadow-sm"
-                  : "text-stone-400 hover:text-stone-600"
-              }`}
-            >
-              {icon} {label}
-            </button>
-          ))}
+        <div className="hidden sm:block text-right">
+          <p className="text-xs text-stone-400 font-medium">Logged in as</p>
+          <p className="text-sm font-bold text-amber-600">{user?.name}</p>
         </div>
-      </div>
+      </header>
 
       {/* ── Messages area ── */}
-      <div className="flex-1 overflow-y-auto px-4 py-6 space-y-4">
-        {/* Loading skeleton */}
-        {loading && (
-          <div className="flex flex-col gap-4">
+      <div className="flex-1 overflow-y-auto px-4 py-8 space-y-6 z-0 custom-scrollbar">
+        {loading ? (
+          <div className="space-y-4">
             {[1, 2, 3].map((i) => (
               <div
                 key={i}
-                className={`flex gap-3 ${i % 2 === 0 ? "flex-row-reverse" : ""}`}
-              >
-                <div className="w-8 h-8 rounded-full bg-stone-200 animate-pulse shrink-0" />
-                <div className="flex flex-col gap-1.5 max-w-xs">
-                  <div className="h-3 w-20 bg-stone-200 rounded animate-pulse" />
-                  <div className="h-14 w-56 bg-stone-200 rounded-2xl animate-pulse" />
-                </div>
-              </div>
+                className="h-20 bg-stone-100 rounded-2xl animate-pulse w-3/4 mx-auto"
+              />
             ))}
           </div>
-        )}
-
-        {/* Empty state */}
-        {!loading && visible.length === 0 && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="flex flex-col items-center justify-center h-full text-center pt-20"
-          >
-            <div className="text-5xl mb-3">💬</div>
-            <p className="font-serif text-lg text-stone-500 font-medium">
-              No messages yet
-            </p>
-            <p className="text-stone-400 text-sm mt-1">
-              Be the first to share your appreciation!
-            </p>
-          </motion.div>
-        )}
-
-        {/* Message bubbles */}
-        <AnimatePresence initial={false}>
-          {!loading &&
-            visible.map((msg, idx) => {
-              const isOwn = msg.name === user?.name;
-              const color = avatarColor(msg.name);
-              const initials = getInitials(msg.name);
-              const prevMsg = visible[idx - 1];
-              const showHeader = !prevMsg || prevMsg.name !== msg.name;
+        ) : (
+          <AnimatePresence initial={false}>
+            {messages.map((msg, idx) => {
+              const isOwn = msg.studentId === user?.studentId;
+              const prevMsg = messages[idx - 1];
+              const isSameUser = prevMsg?.studentId === msg.studentId;
 
               return (
                 <motion.div
                   key={msg._id}
-                  initial={{ opacity: 0, y: 16, scale: 0.97 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.95 }}
-                  transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
-                  className={`flex gap-2.5 ${isOwn ? "flex-row-reverse" : "flex-row"} ${
-                    !showHeader ? (isOwn ? "mr-10" : "ml-10") : ""
-                  }`}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className={`flex items-start gap-3 ${isOwn ? "flex-row-reverse" : "flex-row"}`}
                 >
-                  {/* Avatar */}
-                  {showHeader && (
-                    <div
-                      className={`w-8 h-8 rounded-full shrink-0 flex items-center justify-center text-white text-xs font-bold ${color} shadow-sm`}
-                    >
-                      {initials}
-                    </div>
-                  )}
-
-                  {/* Bubble */}
+                  {/* Avatar (Only show if not same user as previous message) */}
                   <div
-                    className={`flex flex-col max-w-[72%] sm:max-w-sm ${isOwn ? "items-end" : "items-start"}`}
+                    className={`w-9 h-9 rounded-full shrink-0 flex items-center justify-center text-white text-xs font-bold shadow-sm transition-all ${isSameUser ? "opacity-0 scale-0" : "opacity-100 scale-100"} ${avatarColor(msg.name)}`}
                   >
-                    {/* Name + time */}
-                    {showHeader && (
+                    {getInitials(msg.name)}
+                  </div>
+
+                  <div
+                    className={`flex flex-col max-w-[80%] sm:max-w-md ${isOwn ? "items-end" : "items-start"}`}
+                  >
+                    {!isSameUser && (
                       <div
-                        className={`flex items-center gap-1.5 mb-1 ${isOwn ? "flex-row-reverse" : ""}`}
+                        className={`flex items-center gap-2 mb-1 px-1 ${isOwn ? "flex-row-reverse" : ""}`}
                       >
-                        <span className="text-xs font-semibold text-stone-600">
+                        <span className="text-xs font-bold text-stone-700">
                           {msg.name}
                         </span>
-                        <span className="text-[10px] text-stone-300">•</span>
                         <span className="text-[10px] text-stone-400">
                           {timeAgo(msg.createdAt)}
                         </span>
-                        <span className="text-xs">{msg.emoji}</span>
                       </div>
                     )}
 
-                    {/* Message bubble */}
                     <div
-                      className={`relative px-4 py-2.5 rounded-2xl text-sm leading-relaxed shadow-sm ${
+                      className={`relative px-4 py-3 rounded-2xl text-sm shadow-sm transition-all hover:shadow-md
+                      ${
                         isOwn
-                          ? "bg-gradient-to-br from-amber-500 to-orange-500 text-white rounded-tr-sm"
-                          : "bg-white border border-stone-100 text-stone-700 rounded-tl-sm"
-                      } ${msg.pending ? "opacity-60" : ""}`}
+                          ? "bg-stone-800 text-stone-50 rounded-tr-none"
+                          : "bg-white border border-amber-100 text-stone-800 rounded-tl-none"
+                      }
+                    `}
                     >
-                      <p className="font-serif italic">
-                        &ldquo;{msg.message}&rdquo;
-                      </p>
-                      {/* Sending indicator */}
-                      {msg.pending && (
-                        <span className="absolute -bottom-4 right-0 text-[10px] text-stone-400">
-                          sending…
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Role badge */}
-                    {showHeader && (
-                      <span
-                        className={`mt-1 text-[10px] font-medium px-2 py-0.5 rounded-full ${
-                          msg.role === "teacher"
-                            ? "bg-emerald-100 text-emerald-600"
-                            : "bg-amber-100 text-amber-600"
-                        }`}
-                      >
-                        {msg.role === "teacher" ? "🍎 Teacher" : "🎒 Student"}
+                      <span className="absolute -top-3 -right-2 text-lg">
+                        {msg.emoji}
                       </span>
-                    )}
+                      <p className="font-serif leading-relaxed italic">
+                        &ldquo;{msg.text}&rdquo;
+                      </p>
+                    </div>
                   </div>
                 </motion.div>
               );
             })}
-        </AnimatePresence>
-
-        <div ref={bottomRef} className="h-1" />
+          </AnimatePresence>
+        )}
+        <div ref={bottomRef} />
       </div>
 
-      {/* ── Bottom input bar ── */}
-      <div className="shrink-0 border-t border-amber-200/70 bg-[#fffaf2] px-4 py-3">
-        {/* Emoji picker popover */}
-        <AnimatePresence>
-          {showEmoji && (
-            <motion.div
-              initial={{ opacity: 0, y: 8, scale: 0.95 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 8, scale: 0.95 }}
-              transition={{ duration: 0.18 }}
-              className="flex gap-2 mb-2.5 bg-white border border-amber-200 rounded-2xl px-3 py-2 shadow-lg w-fit"
+      {/* ── Input Bar ── */}
+      <div className="shrink-0 bg-white border-t border-amber-100 p-4 sm:p-6 z-10">
+        <div className="max-w-4xl mx-auto">
+          {/* Emoji Selector */}
+          <AnimatePresence>
+            {showEmoji && (
+              <motion.div
+                initial={{ y: 20, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                exit={{ y: 20, opacity: 0 }}
+                className="flex gap-3 mb-4 bg-stone-50 p-3 rounded-2xl border border-stone-200 overflow-x-auto justify-center"
+              >
+                {EMOJIS.map((em) => (
+                  <button
+                    key={em}
+                    onClick={() => {
+                      setEmoji(em);
+                      setShowEmoji(false);
+                    }}
+                    className={`text-2xl hover:scale-125 transition-transform ${emoji === em ? "grayscale-0" : "grayscale opacity-50"}`}
+                  >
+                    {em}
+                  </button>
+                ))}
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          <div className="flex items-end gap-3 bg-stone-100 p-2 rounded-3xl focus-within:bg-white focus-within:ring-4 focus-within:ring-amber-500/10 transition-all border border-transparent focus-within:border-amber-200">
+            <button
+              onClick={() => setShowEmoji(!showEmoji)}
+              className="w-12 h-12 rounded-full bg-white flex items-center justify-center text-2xl shadow-sm hover:bg-amber-50 transition-colors"
             >
-              {EMOJIS.map((em) => (
-                <motion.button
-                  key={em}
-                  type="button"
-                  onClick={() => {
-                    setEmoji(em);
-                    setShowEmoji(false);
-                  }}
-                  whileHover={{ scale: 1.25 }}
-                  whileTap={{ scale: 0.9 }}
-                  className={`text-xl transition-all ${
-                    emoji === em
-                      ? "scale-125 drop-shadow-md"
-                      : "opacity-70 hover:opacity-100"
-                  }`}
-                >
-                  {em}
-                </motion.button>
-              ))}
-            </motion.div>
-          )}
-        </AnimatePresence>
+              {emoji}
+            </button>
 
-        <div className="flex items-end gap-2">
-          {/* Emoji toggle button */}
-          <motion.button
-            type="button"
-            onClick={() => setShowEmoji((v) => !v)}
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.9 }}
-            className={`shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-lg border transition-all ${
-              showEmoji
-                ? "bg-amber-100 border-amber-300"
-                : "bg-white border-stone-200 hover:border-amber-300"
-            }`}
-          >
-            {emoji}
-          </motion.button>
-
-          {/* Text input */}
-          <div className="flex-1 relative">
             <textarea
               ref={inputRef}
               rows={1}
               value={text}
               onChange={(e) => setText(e.target.value)}
               onKeyDown={handleKey}
-              maxLength={500}
-              placeholder="Share your thoughts about our teacher…"
-              className="w-full resize-none bg-white border border-stone-200 rounded-2xl px-4 py-2.5 text-sm text-stone-800 placeholder-stone-300 focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-400/15 transition-all duration-200 max-h-32 leading-relaxed"
-              style={{ scrollbarWidth: "none" }}
+              placeholder="Write a message of gratitude..."
+              className="flex-1 bg-transparent border-none focus:ring-0 py-3 px-2 text-sm text-stone-800 placeholder-stone-400 resize-none max-h-32"
               onInput={(e) => {
                 e.target.style.height = "auto";
-                e.target.style.height =
-                  Math.min(e.target.scrollHeight, 128) + "px";
+                e.target.style.height = e.target.scrollHeight + "px";
               }}
             />
-            {/* Char count */}
-            {text.length > 400 && (
-              <span className="absolute right-3 bottom-2 text-[10px] text-stone-300">
-                {500 - text.length}
-              </span>
-            )}
+
+            <button
+              onClick={handleSend}
+              disabled={!text.trim() || sending}
+              className="w-12 h-12 rounded-full bg-amber-500 flex items-center justify-center text-white shadow-lg shadow-amber-200 hover:bg-amber-600 disabled:bg-stone-300 disabled:shadow-none transition-all"
+            >
+              {sending ? (
+                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              ) : (
+                "🚀"
+              )}
+            </button>
           </div>
-
-          {/* Send button */}
-          <motion.button
-            type="button"
-            onClick={handleSend}
-            disabled={sending || !text.trim()}
-            whileHover={text.trim() ? { scale: 1.05 } : {}}
-            whileTap={text.trim() ? { scale: 0.95 } : {}}
-            className="shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-white shadow-md shadow-amber-500/25 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
-            style={{
-              background: text.trim()
-                ? "linear-gradient(135deg, #d97706, #b45309)"
-                : "#d1d5db",
-            }}
-          >
-            {sending ? (
-              <svg
-                className="w-4 h-4 animate-spin"
-                fill="none"
-                viewBox="0 0 24 24"
-              >
-                <circle
-                  className="opacity-25"
-                  cx="12"
-                  cy="12"
-                  r="10"
-                  stroke="currentColor"
-                  strokeWidth="4"
-                />
-                <path
-                  className="opacity-75"
-                  fill="currentColor"
-                  d="M4 12a8 8 0 018-8v8z"
-                />
-              </svg>
-            ) : (
-              <svg
-                className="w-4 h-4"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
-                />
-              </svg>
-            )}
-          </motion.button>
+          <p className="text-center text-[10px] text-stone-400 mt-3 font-medium uppercase tracking-widest">
+            Physics Lab Tribute Board • 2024
+          </p>
         </div>
-
-        {/* Hint */}
-        <p className="text-[10px] text-stone-300 mt-1.5 pl-1">
-          Press{" "}
-          <kbd className="bg-stone-100 px-1 rounded text-[9px]">Enter</kbd> to
-          send ·{" "}
-          <kbd className="bg-stone-100 px-1 rounded text-[9px]">
-            Shift+Enter
-          </kbd>{" "}
-          for new line
-        </p>
       </div>
     </div>
   );
 };
+
 export default Messages;

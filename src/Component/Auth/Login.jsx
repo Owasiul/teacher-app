@@ -1,8 +1,10 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router";
+import { Link, useNavigate } from "react-router"; // Standard for web apps
 import { motion, AnimatePresence } from "framer-motion";
 import { useForm } from "react-hook-form";
 import toast from "react-hot-toast";
+import axiosPublic from "../Axios/AxiosApi";
+
 
 const fadeUp = {
   hidden: { opacity: 0, y: 20 },
@@ -26,12 +28,19 @@ export default function Login() {
 
   const onSubmit = async (data) => {
     try {
-      // TODO: replace with your API call e.g. await loginUser(data)
-      await new Promise((r) => setTimeout(r, 1200));
-      toast.success("Welcome back! 🎓");
-      navigate("/");
-    } catch {
-      toast.error("Invalid name or ID. Please try again.");
+      // Data format matches backend: { name, studentId }
+      const response = await axiosPublic.post("/login", data);
+      
+      if (response.data.success) {
+        // Save user to local storage
+        localStorage.setItem("teacher-app-user", JSON.stringify(response.data.student));
+        
+        toast.success(`Welcome back, ${response.data.student.name}! 🎓`);
+        navigate("/"); // Navigate to home or message board
+      }
+    } catch (error) {
+      console.error("Login Error:", error);
+      toast.error(error.response?.data?.message || "Invalid credentials. Please try again.");
     }
   };
 
@@ -50,7 +59,7 @@ export default function Login() {
         <div className="absolute bottom-0 right-0 w-60 h-60 bg-orange-600/10 rounded-full blur-3xl translate-x-1/2 translate-y-1/2" />
 
         {/* Floating physics symbols */}
-        {["∑", "∫", "Δ", "λ", "Ω", "π", "∞", "✦"].map((sym, i) => (
+        {["∑", "∫", "Δ", "λ", "Ω", "π", "⚛️", "✦"].map((sym, i) => (
           <motion.span
             key={i}
             className="absolute font-serif text-white/5 select-none pointer-events-none"
@@ -75,10 +84,10 @@ export default function Login() {
           <div className="flex items-center gap-2.5 mb-16">
             <motion.span
               className="text-amber-400 text-xl"
-              animate={{ rotate: [0, 15, -15, 0] }}
-              transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
+              animate={{ rotate: [0, 360] }}
+              transition={{ duration: 8, repeat: Infinity, ease: "linear" }}
             >
-              ✦
+              ⚛️
             </motion.span>
             <span className="font-serif text-white text-xl font-semibold tracking-tight">
               Dear Teacher
@@ -113,7 +122,7 @@ export default function Login() {
           animate={{ opacity: 1 }}
           transition={{ delay: 0.8 }}
         >
-          Sign in to join our tribute and share your heartfelt appreciation.
+          Every student is a particle, and your guidance is the force that defines our trajectory.
         </motion.p>
       </motion.div>
 
@@ -129,10 +138,6 @@ export default function Login() {
           }}
         />
 
-        {/* Soft orbs */}
-        <div className="absolute top-10 right-10 w-64 h-64 bg-amber-200/20 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute bottom-10 left-10 w-48 h-48 bg-orange-200/15 rounded-full blur-3xl pointer-events-none" />
-
         <motion.div
           className="relative w-full max-w-sm"
           initial={{ opacity: 0, y: 36, scale: 0.97 }}
@@ -146,15 +151,6 @@ export default function Login() {
             initial="hidden"
             animate="show"
           >
-            {/* Mobile brand */}
-            <motion.div
-              variants={fadeUp}
-              className="flex lg:hidden items-center gap-2 mb-8"
-            >
-              <span className="text-amber-500 text-base">✦</span>
-              <span className="font-serif text-stone-900 text-lg font-semibold">Dear Teacher</span>
-            </motion.div>
-
             <motion.p
               variants={fadeUp}
               className="text-xs font-semibold uppercase tracking-[3px] text-amber-500 mb-2"
@@ -167,12 +163,6 @@ export default function Login() {
             >
               Sign in to<br />your account
             </motion.h1>
-            <motion.p
-              variants={fadeUp}
-              className="text-stone-400 text-sm mt-3 leading-relaxed"
-            >
-              Enter your name and student ID to continue.
-            </motion.p>
           </motion.div>
 
           {/* Form */}
@@ -185,102 +175,53 @@ export default function Login() {
           >
             {/* Name field */}
             <motion.div variants={fadeUp} className="flex flex-col gap-1.5">
-              <label
-                htmlFor="name"
-                className="text-xs font-semibold uppercase tracking-widest text-stone-400"
-              >
+              <label className="text-xs font-semibold uppercase tracking-widest text-stone-400">
                 Full Name
               </label>
               <div className="relative group">
-                {/* Left accent bar */}
-                <motion.span
-                  className="absolute left-0 top-0 bottom-0 w-0.5 rounded-full bg-amber-400 origin-top"
-                  initial={{ scaleY: 0 }}
-                  whileFocus={{ scaleY: 1 }}
-                  transition={{ duration: 0.2 }}
-                />
-                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-300 text-sm pointer-events-none">
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-300 text-sm">
                   👤
                 </span>
                 <input
-                  id="name"
                   type="text"
                   placeholder="e.g. Aryan Rahman"
-                  autoComplete="name"
                   {...register("name", {
                     required: "Please enter your full name.",
-                    minLength: { value: 2, message: "Name must be at least 2 characters." },
                   })}
                   className={`w-full pl-10 pr-4 py-3.5 rounded-xl border text-sm text-stone-800 bg-white placeholder-stone-300 focus:outline-none transition-all duration-200
-                    ${errors.name
-                      ? "border-red-300 focus:border-red-400 focus:ring-2 focus:ring-red-100"
-                      : "border-stone-200 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/15"
-                    }`}
+                    ${errors.name ? "border-red-300 ring-red-100" : "border-stone-200 focus:border-amber-400 focus:ring-amber-400/15"}`}
                 />
               </div>
-              <AnimatePresence>
-                {errors.name && (
-                  <motion.p
-                    initial={{ opacity: 0, y: -4, height: 0 }}
-                    animate={{ opacity: 1, y: 0,  height: "auto" }}
-                    exit={{   opacity: 0, y: -4,  height: 0 }}
-                    className="text-red-400 text-xs flex items-center gap-1"
-                  >
-                    <span>⚠</span> {errors.name.message}
-                  </motion.p>
-                )}
-              </AnimatePresence>
+              {errors.name && <p className="text-red-400 text-xs">{errors.name.message}</p>}
             </motion.div>
 
             {/* Student ID field */}
             <motion.div variants={fadeUp} className="flex flex-col gap-1.5">
-              <label
-                htmlFor="studentId"
-                className="text-xs font-semibold uppercase tracking-widest text-stone-400"
-              >
+              <label className="text-xs font-semibold uppercase tracking-widest text-stone-400">
                 Student ID
               </label>
               <div className="relative group">
-                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-300 text-sm pointer-events-none">
-                  🪪
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-300 text-sm">
+                  🆔
                 </span>
                 <input
-                  id="studentId"
                   type={showId ? "text" : "password"}
-                  placeholder="e.g. 2024-PHY-042"
-                  autoComplete="current-password"
+                  placeholder="e.g. PHY-2024"
                   {...register("studentId", {
                     required: "Student ID is required.",
-                    minLength: { value: 3, message: "ID must be at least 3 characters." },
                   })}
                   className={`w-full pl-10 pr-12 py-3.5 rounded-xl border text-sm text-stone-800 bg-white placeholder-stone-300 focus:outline-none transition-all duration-200
-                    ${errors.studentId
-                      ? "border-red-300 focus:border-red-400 focus:ring-2 focus:ring-red-100"
-                      : "border-stone-200 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/15"
-                    }`}
+                    ${errors.studentId ? "border-red-300 ring-red-100" : "border-stone-200 focus:border-amber-400 focus:ring-amber-400/15"}`}
                 />
-                {/* Show / hide toggle */}
                 <button
                   type="button"
                   onClick={() => setShowId((v) => !v)}
-                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-stone-300 hover:text-stone-500 transition-colors text-xs font-medium"
-                  tabIndex={-1}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-stone-300 hover:text-stone-500 text-xs font-medium"
                 >
                   {showId ? "Hide" : "Show"}
                 </button>
               </div>
-              <AnimatePresence>
-                {errors.studentId && (
-                  <motion.p
-                    initial={{ opacity: 0, y: -4, height: 0 }}
-                    animate={{ opacity: 1, y: 0,  height: "auto" }}
-                    exit={{   opacity: 0, y: -4,  height: 0 }}
-                    className="text-red-400 text-xs flex items-center gap-1"
-                  >
-                    <span>⚠</span> {errors.studentId.message}
-                  </motion.p>
-                )}
-              </AnimatePresence>
+              {errors.studentId && <p className="text-red-400 text-xs">{errors.studentId.message}</p>}
             </motion.div>
 
             {/* Submit */}
@@ -288,54 +229,19 @@ export default function Login() {
               <motion.button
                 type="submit"
                 disabled={isSubmitting}
-                whileHover={!isSubmitting ? { scale: 1.02, y: -1 } : {}}
-                whileTap={!isSubmitting  ? { scale: 0.98 }         : {}}
-                transition={{ type: "spring", stiffness: 300, damping: 20 }}
-                className="relative w-full py-3.5 rounded-xl text-sm font-semibold text-white overflow-hidden shadow-lg shadow-amber-600/20 disabled:opacity-60 disabled:cursor-not-allowed"
-                style={{ background: "linear-gradient(135deg, #d97706 0%, #92400e 100%)" }}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                className="w-full py-3.5 rounded-xl text-sm font-semibold text-white shadow-lg bg-linear-to-r from-amber-600 to-amber-800 disabled:opacity-60"
               >
-                {/* Shimmer */}
-                {!isSubmitting && (
-                  <motion.span
-                    className="absolute inset-0 bg-white/10 -skew-x-12 -translate-x-full"
-                    whileHover={{ translateX: "250%" }}
-                    transition={{ duration: 0.6 }}
-                  />
-                )}
-                <span className="relative flex items-center justify-center gap-2">
-                  {isSubmitting ? (
-                    <>
-                      <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
-                      </svg>
-                      Signing in…
-                    </>
-                  ) : (
-                    <>Sign In ✦</>
-                  )}
-                </span>
+                {isSubmitting ? "Signing in..." : "Sign In ✦"}
               </motion.button>
             </motion.div>
 
-            {/* Divider */}
-            <motion.div
-              variants={fadeUp}
-              className="flex items-center gap-3 py-1"
-            >
-              <span className="flex-1 h-px bg-stone-200" />
-              <span className="text-stone-300 text-xs">or</span>
-              <span className="flex-1 h-px bg-stone-200" />
-            </motion.div>
-
             {/* Register link */}
-            <motion.div variants={fadeUp} className="text-center">
+            <motion.div variants={fadeUp} className="text-center pt-2">
               <p className="text-stone-400 text-sm">
                 Don't have an account?{" "}
-                <Link
-                  to="/register"
-                  className="text-amber-600 font-semibold hover:text-amber-700 transition-colors underline underline-offset-2"
-                >
+                <Link to="/register" className="text-amber-600 font-semibold hover:text-amber-700 underline">
                   Register here
                 </Link>
               </p>

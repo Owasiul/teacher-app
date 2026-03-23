@@ -4,6 +4,7 @@ import Home from "../Component/Home/Home";
 import Messsages from "../Component/Messages/Messsages";
 import Register from "../Component/Auth/Register";
 import Login from "../Component/Auth/Login";
+import Photos from "../Component/Photos/Photos";
 export const router = createBrowserRouter([
   {
     path: "/",
@@ -13,6 +14,10 @@ export const router = createBrowserRouter([
       {
         path: "/messages",
         element: <Messsages />,
+      },
+      {
+        path: "/photos",
+        element: <Photos />,
       },
     ],
   },
